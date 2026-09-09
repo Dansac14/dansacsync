@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Bandeja · Omnichannel CRM",
+  title: "Synchrony Dansac",
   description: "Atención omnicanal con agente de IA y toma de control humano",
 };
 

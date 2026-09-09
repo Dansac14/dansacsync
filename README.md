@@ -1,4 +1,4 @@
-# Omnichannel Social CRM & IA Agent
+# Synchrony Dansac
 
 CRM social omnicanal multi-tenant con agente de IA sobre WhatsApp, Instagram,
 Facebook y TikTok. Incluye RAG sobre los manuales de cada empresa, toma de

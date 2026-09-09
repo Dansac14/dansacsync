@@ -20,10 +20,11 @@ export default async function LoginPage({
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-            Bandeja de atención
+            Synchrony Dansac
           </h1>
           <p className="mt-2 text-sm text-slate-500">
-            Ingresa con la cuenta que te dio el administrador de tu empresa.
+            Bandeja de atención. Ingresa con la cuenta que te dio el
+            administrador de tu empresa.
           </p>
         </div>
 

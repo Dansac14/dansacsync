@@ -1,8 +1,19 @@
 # Despliegue
 
-Estado actual: **solo existe la capa de datos.** Estas instrucciones cubren
-GitHub y Supabase. Vercel queda para cuando exista `web/`, porque hoy no hay
-frontend que desplegar.
+El sistema está completo en código: base de datos, webhook, worker, agente RAG,
+Inbox, catálogo, órdenes y módulo fiscal. Lo que falta es conectarlo a
+servicios reales.
+
+Orden de despliegue, y por qué ese orden:
+
+1. **Supabase** — es la base de todo lo demás.
+2. **Edge Function del webhook** — necesita el proyecto ya creado.
+3. **Worker** — necesita la base y las credenciales de canal.
+4. **Vercel** — el Inbox; es lo último porque sin datos no muestra nada.
+
+Las credenciales de Meta y la clave de OpenAI se pueden añadir después: sin
+ellas el sistema arranca, guarda los mensajes que lleguen y los deja en la
+bandeja para una persona.
 
 ---
 
@@ -18,7 +29,7 @@ en el primer push).
 ```bash
 cd omnichannel-crm
 
-git remote add origin git@github.com:<tu-usuario>/omnichannel-social-crm.git
+git remote add origin git@github.com:Dansac14/dansacsync.git
 git branch -M main
 git push -u origin main
 ```
@@ -26,7 +37,7 @@ git push -u origin main
 Con HTTPS en lugar de SSH:
 
 ```bash
-git remote add origin https://github.com/<tu-usuario>/omnichannel-social-crm.git
+git remote add origin https://github.com/Dansac14/dansacsync.git
 git branch -M main
 git push -u origin main
 ```
@@ -43,7 +54,7 @@ git ls-files | grep -E '^\.env$' && echo "ALTO: .env quedaría versionado" || ec
 
 Desde el panel de Supabase, dentro de tu organización:
 
-- **Nombre:** el que prefieras, por ejemplo `omnichannel-social-crm`
+- **Nombre:** `synchrony-dansac`
 - **Región:** `sa-east-1` (São Paulo) es la más cercana a Perú; `us-east-1`
   (Virginia) es la más estándar. Cualquiera de las dos funciona.
 - **Contraseña de la base de datos:** guárdala en tu gestor de contraseñas. No
@@ -66,7 +77,7 @@ supabase link --project-ref <tu-project-ref>
 supabase db push
 ```
 
-`db push` aplica los 11 archivos de `supabase/migrations/` en orden alfabético,
+`db push` aplica los 16 archivos de `supabase/migrations/` en orden alfabético,
 que es el orden correcto: cada uno depende de los anteriores.
 
 Sin el CLI, con `psql` directo:
@@ -103,11 +114,19 @@ join pg_class c on c.relname = t.tablename
 join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
 where t.schemaname = 'public' and not c.relrowsecurity;
 
--- 63 políticas
+-- 61 políticas
 select count(*) from pg_policies where schemaname = 'public';
 
 -- pgvector activo
 select extname, extversion from pg_extension where extname = 'vector';
+
+-- La comprobación más importante de todas: `anon` es la clave que viaja en el
+-- navegador, y solo debe poder ejecutar order_public_view. Cualquier otra
+-- función en esta lista es un agujero.
+select p.proname
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname in ('public','app')
+  and has_function_privilege('anon', p.oid, 'EXECUTE');
 ```
 
 Además, el panel de Supabase tiene un asesor de seguridad en
@@ -171,12 +190,69 @@ se guarda para diagnóstico y no se procesa.
 
 ---
 
-## 7. Vercel
+## 7. Desplegar el webhook
 
-Pendiente. Se conecta cuando exista `web/` con su `package.json`. Conectarlo
-antes deja un despliegue fallido o un proyecto en blanco.
+```bash
+supabase secrets set META_APP_SECRET=... META_VERIFY_TOKEN=...
+supabase functions deploy webhook-social --no-verify-jwt
+```
 
-Cuando llegue el momento, las variables que necesita son `NEXT_PUBLIC_APP_URL`,
-`NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. La
-`SUPABASE_SERVICE_ROLE_KEY` no va en Vercel salvo que se use en rutas de
-servidor, y nunca con el prefijo `NEXT_PUBLIC_`, que la publicaría al navegador.
+`--no-verify-jwt` es obligatorio: Meta llama sin un token de Supabase. La
+autenticación del webhook es la firma HMAC del propio evento, que la función
+verifica antes de tocar la base de datos.
+
+La URL que se registra en Meta es:
+`https://<project-ref>.supabase.co/functions/v1/webhook-social`
+
+---
+
+## 8. Levantar el worker
+
+El worker es un proceso permanente. **Vercel no sirve**: sus funciones son
+efímeras y mueren al terminar la petición. Necesita Railway, Fly.io, Render o
+un VPS.
+
+Para la primera prueba basta con correrlo en tu propia máquina:
+
+```bash
+cd worker
+npm install
+npm start
+```
+
+Variables mínimas en `.env`: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y,
+para que el agente responda, `OPENAI_API_KEY`. Sin la clave de IA el worker
+arranca igual: guarda los mensajes y escala cada conversación a una persona,
+que es el comportamiento correcto, no un fallo.
+
+---
+
+## 9. Indexar los manuales
+
+```bash
+cd worker
+npm run ingest -- --tenant mi-empresa --title "Manual Operativo 2026" \
+                  --file ./manuales/operativo.md
+```
+
+Hasta que haya al menos un manual indexado, el agente escala todas las
+consultas a una persona en lugar de improvisar respuestas.
+
+---
+
+## 10. Vercel
+
+Directorio raíz del proyecto: **`web/`**. Variables necesarias:
+
+| Variable | Valor |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | La URL del proyecto Supabase |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | La clave publicable |
+| `NEXT_PUBLIC_APP_URL` | La URL que Vercel asigne, para los enlaces de pago |
+
+La `SUPABASE_SERVICE_ROLE_KEY` **no va en Vercel**. El Inbox trabaja con la
+sesión del operador y toda consulta pasa por la RLS. Y nunca con el prefijo
+`NEXT_PUBLIC_`, que la publicaría al navegador.
+
+Después del despliegue, en Supabase → Authentication → URL Configuration, pon
+la URL de Vercel como **Site URL**: sin eso, el ingreso redirige a localhost.
