@@ -19,16 +19,18 @@ bandeja para una persona.
 
 ## 1. Subir el repositorio a GitHub
 
-El historial de Git ya viene iniciado con el commit inicial hecho. Solo falta
-apuntarlo a tu repositorio.
+El historial de Git ya viene con sus commits hechos. Solo falta apuntarlo al
+repositorio remoto.
 
-Crea el repositorio en GitHub **vacío y privado** (sin README, sin .gitignore,
-sin licencia: ya están aquí y un archivo autogenerado provocaría un conflicto
-en el primer push).
+El repositorio en GitHub debe ser **privado**. Este código incluye la lógica
+fiscal, el esquema completo y las políticas de seguridad del SaaS.
+
+Lo que se sube es el contenido de esta carpeta **en la raíz** del repositorio:
+`README.md`, `docs/`, `supabase/`, `web/`, `worker/` deben quedar en el primer
+nivel. Si al abrir el repositorio en GitHub ves una sola carpeta que contiene
+todo, el push se hizo desde el directorio padre equivocado.
 
 ```bash
-cd omnichannel-crm
-
 git remote add origin git@github.com:Dansac14/dansacsync.git
 git branch -M main
 git push -u origin main
@@ -42,11 +44,14 @@ git branch -M main
 git push -u origin main
 ```
 
-Comprueba antes que no vas a subir secretos:
+Comprueba antes que no vas a subir secretos. Los `.example` sí se suben; los
+`.env` reales, nunca:
 
 ```bash
-git ls-files | grep -E '^\.env$' && echo "ALTO: .env quedaría versionado" || echo "OK: ningún .env versionado"
+git ls-files | grep -E '(^|/)\.env(\.|$)' | grep -v '\.example$'
 ```
+
+Si ese comando no imprime nada, no hay secretos versionados.
 
 ---
 
@@ -215,15 +220,25 @@ un VPS.
 Para la primera prueba basta con correrlo en tu propia máquina:
 
 ```bash
+cp .env.example .env    # y complétalo
 cd worker
 npm install
 npm start
 ```
 
-Variables mínimas en `.env`: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y,
+El worker lee el `.env` de la **raíz** del repositorio, no uno dentro de
+`worker/`. Variables mínimas: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y,
 para que el agente responda, `OPENAI_API_KEY`. Sin la clave de IA el worker
 arranca igual: guarda los mensajes y escala cada conversación a una persona,
 que es el comportamiento correcto, no un fallo.
+
+Los tres archivos de entorno son distintos y no se mezclan:
+
+| Archivo | Lo lee | Prefijo de las variables |
+|---|---|---|
+| `.env` (raíz) | el worker | sin prefijo |
+| `web/.env.local` | Next.js | `NEXT_PUBLIC_` |
+| `supabase secrets set` | la Edge Function | sin prefijo |
 
 ---
 
