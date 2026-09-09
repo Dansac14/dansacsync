@@ -145,6 +145,23 @@ check("El separador de ayer dice Ayer",
 check("El separador antiguo trae dia y mes",
   formatDayDivider(hace10Dias).length > 6, formatDayDivider(hace10Dias));
 
+// Esta era la unica de las tres funciones de fecha sin validar. Al llamarse
+// dentro del render del hilo, una fecha invalida lanzaba RangeError y tumbaba
+// el panel completo, no solo esa burbuja; y con null mostraba un separador de
+// "1 de enero" en medio de la conversacion.
+let separadorLanzo = false;
+let separadorInvalido = "";
+try {
+  separadorInvalido = formatDayDivider("no-es-fecha");
+} catch {
+  separadorLanzo = true;
+}
+check("El separador de dia no lanza con una fecha invalida", !separadorLanzo);
+check("El separador de dia devuelve vacio con una fecha invalida",
+  separadorInvalido === "", separadorInvalido);
+check("El separador de dia devuelve vacio con null",
+  formatDayDivider(null) === "", formatDayDivider(null));
+
 // =============================================================================
 
 process.stdout.write("\n" + "=".repeat(70) + "\n");

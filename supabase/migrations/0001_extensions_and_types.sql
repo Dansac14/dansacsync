@@ -9,6 +9,12 @@
 -- mismas migraciones corran tal cual en un Postgres limpio.
 create schema if not exists extensions;
 
+-- Y con USAGE para los roles. En Supabase viene concedido; en un Postgres
+-- limpio no, y sin esto el tipo `vector` y el operador `<=>` quedan
+-- inaccesibles para el worker: la busqueda semantica falla con "permission
+-- denied for schema extensions" solo en produccion, no al aplicar migraciones.
+grant usage on schema extensions to anon, authenticated, service_role;
+
 create extension if not exists "pgcrypto"  with schema extensions;
 create extension if not exists "vector"    with schema extensions;
 create extension if not exists "pg_trgm"   with schema extensions;

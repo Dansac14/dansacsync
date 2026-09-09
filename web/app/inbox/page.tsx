@@ -6,10 +6,10 @@
 // el componente cliente, porque necesita la suscripcion de tiempo real.
 // =============================================================================
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolverContexto } from "@/lib/tenant";
 import { logout } from "../login/actions";
 import { InboxShell } from "@/components/inbox/InboxShell";
-import type { Group, Membership } from "@/lib/types";
+import type { Group } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -19,51 +19,37 @@ export default async function InboxPage({
   searchParams: Promise<{ empresa?: string }>;
 }) {
   const { empresa } = await searchParams;
-  const supabase = await createSupabaseServerClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    // El middleware ya redirige, pero el componente no debe asumirlo.
-    return <SinAcceso mensaje="Sesión no válida. Vuelve a ingresar." />;
-  }
+  // Se usa el mismo resolutor que las demas pantallas. Antes esta pagina
+  // repetia la consulta de membresias por su cuenta y sin filtrar por usuario,
+  // asi que traia una fila por companero de empresa: el selector aparecia con
+  // la misma empresa repetida y el rol se tomaba de la fila de otra persona.
+  const resultado = await resolverContexto(empresa);
+  if (!resultado.ok) return <SinAcceso mensaje={resultado.motivo} />;
 
-  // Empresas donde este usuario es miembro activo. La RLS ya limita la
-  // consulta: no hace falta filtrar por user_id.
-  const { data: membershipsData, error: membershipsError } = await supabase
-    .from("tenant_members")
-    .select("tenant_id, role, display_name, tenants(id, business_name, slug)")
-    .eq("status", "active");
+  const { supabase, userId, userEmail, memberships, active } = resultado.contexto;
 
-  if (membershipsError) {
-    return <SinAcceso mensaje={`No se pudo leer tu acceso: ${membershipsError.message}`} />;
-  }
-
-  const memberships = (membershipsData ?? []) as unknown as Membership[];
-
-  if (memberships.length === 0) {
-    return (
-      <SinAcceso
-        mensaje="Tu cuenta existe pero todavía no pertenece a ninguna empresa. Pide al administrador que te agregue."
-      />
-    );
-  }
-
-  const active =
-    memberships.find((m) => m.tenants?.slug === empresa) ?? memberships[0]!;
-
-  const { data: groupsData } = await supabase
-    .from("groups")
-    .select("id, name, color, system_key")
-    .eq("tenant_id", active.tenant_id)
-    .order("name");
+  const [grupos, productos] = await Promise.all([
+    supabase.from("groups")
+      .select("id, name, color, system_key")
+      .eq("tenant_id", active.tenant_id)
+      .order("name"),
+    // Catalogo activo, para poder enviar una ficha sin salir de la conversacion.
+    supabase.from("products")
+      .select("id, name, sku, price, currency, track_stock, stock_quantity, images")
+      .eq("tenant_id", active.tenant_id)
+      .eq("is_active", true)
+      .order("name"),
+  ]);
 
   return (
     <InboxShell
-      userId={user.id}
-      userEmail={user.email ?? ""}
+      userId={userId}
+      userEmail={userEmail}
       memberships={memberships}
       active={active}
-      groups={(groupsData ?? []) as Group[]}
+      groups={(grupos.data ?? []) as Group[]}
+      productos={(productos.data ?? []) as never}
       onLogout={logout}
     />
   );

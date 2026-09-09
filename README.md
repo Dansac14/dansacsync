@@ -17,7 +17,8 @@ credenciales con ningún otro sistema.
 | 2 | Webhook unificado, worker y despacho multicanal | **Completa y verificada** · TikTok sin implementar |
 | 3 | Motor RAG e ingesta de manuales | **Completa** · sin probar aún contra un proveedor real |
 | 4 | Inbox del operador con takeover en tiempo real | **Completa** · compila y se sirve; sin probar aún contra datos reales |
-| 5 | Catálogo, órdenes y módulo fiscal (interfaz) | Pendiente |
+| 5 | Catálogo, órdenes, finanzas y ajustes | **Completa** · compila y se sirve |
+| — | Revisión de seguridad y endurecimiento | **Completa** · 9 fallos graves corregidos |
 
 Lo que falta para que el sistema atienda a un cliente real: un proyecto
 Supabase, credenciales de Meta, una clave de OpenAI y los manuales de la
@@ -111,6 +112,8 @@ supabase/
     0012_secrets_and_media_storage     Lectura de Vault y bucket de archivos
     0013_queue_finalizers_and_receipts Fallos definitivos y acuses de entrega
     0014_escalation_and_knowledge      Escalado a operador y reindexado atómico
+    0015_commerce_operations           Ficha de producto, pago, comprobante, resumen
+    0016_hardening                     Correcciones de la revisión de seguridad
   functions/
     _shared/signature.ts               Verificación HMAC y handshake
     _shared/normalize.ts               Los tres formatos de Meta a un sobre único
@@ -120,6 +123,8 @@ supabase/
     00_supabase_shim.sql               Emula auth.uid() y los roles en Postgres limpio
     01_verify_core.sql                 14 verificaciones del núcleo
     02_verify_channels.sql             5 verificaciones de acuses, escalado y reindexado
+    03_verify_commerce.sql             9 verificaciones de catálogo, pago y fiscal
+    04_verify_hardening.sql            9 ataques reales que ya no funcionan
 
 worker/
   src/index.ts                         Dos bucles de cola, apagado ordenado
@@ -152,7 +157,20 @@ web/
   lib/types.ts                         Tipos del esquema y nombre del contacto
   lib/format.ts                        Fechas relativas y ventana de servicio
   middleware.ts                        Guardia de rutas
-  tests/verify_inbox_logic.ts          24 verificaciones de lógica de interfaz
+  app/ordenes/page.tsx                 Órdenes: crear, cobrar, emitir comprobante
+  app/catalogo/page.tsx                Catálogo de productos y categorías
+  app/finanzas/page.tsx                Resumen financiero, gastos y comprobantes
+  app/ajustes/page.tsx                 Empresa, agente de IA, canales y manuales
+  app/p/[token]/page.tsx               Página pública de la orden, sin sesión
+  components/orders/OrdersManager.tsx  Órdenes y emisión fiscal
+  components/catalog/CatalogManager.tsx Catálogo
+  components/finance/FinanceDashboard.tsx Cifras del periodo y gastos
+  components/settings/SettingsForm.tsx Ajustes de empresa y del agente
+  components/inbox/ProductPicker.tsx   Envío de ficha desde la conversación
+  lib/money.ts                         Importes, RUC y DNI
+  lib/tenant.ts                        Resolución de usuario y empresa
+  tests/verify_inbox_logic.ts          27 verificaciones de lógica de interfaz
+  tests/verify_money.ts                41 verificaciones de importes y documentos
 ```
 
 ---
@@ -184,10 +202,21 @@ cd worker && npm install && npm run typecheck
 cd ../web && npm install && npm run build
 ```
 
-Resultado actual: **19 invariantes de base de datos, 38 verificaciones de
-webhook, 22 de troceado y 24 de la lógica del Inbox. 103 en total, todas en
-verde.** El frontend compila y se sirve: `/login` responde 200 y `/inbox` sin
-sesión redirige a `/login?destino=/inbox`.
+Resultado actual: **175 verificaciones en verde, sin credenciales externas.**
+
+| Suite | Qué comprueba | Verificaciones |
+|---|---|---|
+| `01_verify_core.sql` | Aislamiento, idempotencia, numeración, totales | 14 |
+| `02_verify_channels.sql` | Acuses, escalado, reindexado atómico | 5 |
+| `03_verify_commerce.sql` | Catálogo, pago, comprobante, resumen, página pública | 9 |
+| `04_verify_hardening.sql` | Ataques reales que ya no funcionan | 9 |
+| `verify_webhook.ts` | Firma HMAC y normalización de los tres formatos | 45 |
+| `verify_chunker.ts` | Troceado de manuales sin pérdida de texto | 25 |
+| `verify_inbox_logic.ts` | Nombre de contacto, ventana de 24 h, fechas | 27 |
+| `verify_money.ts` | Importes, RUC, DNI, estados | 41 |
+
+Más el typecheck del worker, el build del frontend, y la comprobación de que
+`/login` responde 200 y `/inbox` sin sesión redirige a `/login?destino=/inbox`.
 
 Base de datos:
 
@@ -313,3 +342,40 @@ Para completarlo hacen falta dos datos del portal: el esquema exacto de firma
 de cuerpo. Con eso, el archivo se completa siguiendo el mismo contrato que los
 otros tres y no hay que tocar nada más: la base de datos ya acepta `tiktok` como
 canal y el registro de canales ya lo contempla.
+
+---
+
+## Revisión de seguridad
+
+El esquema y el código pasaron por una revisión independiente. Encontró **nueve
+fallos con consecuencia real**, todos corregidos en `0016_hardening.sql` y en el
+código, y cada uno tiene ahora una prueba que reproduce el ataque y verifica que
+ya no funciona.
+
+| Fallo | Qué permitía | Corrección |
+|---|---|---|
+| EXECUTE por defecto para PUBLIC | Once funciones ejecutables por `anon` (la clave que viaja en el navegador): emitir facturas en empresas ajenas, cobrar órdenes, escribir a clientes de otra empresa como su bot | `revoke` explícito sobre todas las funciones y `alter default privileges` para las futuras |
+| Comprobación que se desactivaba a sí misma | `if auth.uid() is not null and not app.is_member(…)` no comprobaba nada cuando `auth.uid()` era NULL | `app.assert_tenant_access()`: exige pertenencia salvo que quien llame sea el backend |
+| Escritura entre empresas por la fila hija | Insertar una línea con MI `tenant_id` en una orden AJENA reescribía su total; lo mismo en la bandeja de otra empresa | Claves ajenas compuestas `(tenant_id, padre_id)` contra `unique (tenant_id, id)` |
+| `next_correlative` sin comprobar | Quemar correlativos fiscales de cualquier empresa; en Perú, una serie con huecos es una contingencia ante SUNAT | Comprobación de pertenencia y validación del ámbito |
+| El rol `viewer` escribía | El rol de solo lectura no existía en la base | `app.can_write()` en todas las políticas de escritura |
+| Comprobantes insertables a mano | Insertar el correlativo que la secuencia iba a asignar bloqueaba la facturación de forma irreversible | Emisión solo por función; sin política de INSERT |
+| Comprobantes emitidos reescribibles | Cambiar importe, receptor y correlativo de un documento ya declarado | Trigger de inmutabilidad |
+| Importes de orden manipulables | `total = 0.01` en una orden de 1750, o pasarla a pagada sin descontar stock | Restricción de coherencia y permisos por columna |
+| Autoría falsificable | Cargar gastos y comprobantes a nombre de otra persona | Triggers que fuerzan `created_by` al usuario de la sesión |
+
+Y en el código:
+
+| Fallo | Consecuencia |
+|---|---|
+| Rama de `changes[].value.messaging` inalcanzable | Con una cuenta conectada de esa forma, el mensaje del cliente desaparecía sin dejar rastro |
+| El duplicado enmascaraba fallos posteriores | Si la IA o el encolado fallaban, el reintento veía "duplicado" y el cliente no recibía respuesta nunca |
+| Dos POST en un trabajo de Messenger | Un 429 en el segundo hacía que el cliente recibiera la imagen hasta cinco veces |
+| El troceador descartaba texto | Se perdía casi la mitad de un manual, y la ingesta lo reportaba como éxito |
+| Trabajos abandonados en `processing` | Si el worker moría, esos mensajes no se respondían nunca y nadie se enteraba |
+| Membresías sin filtrar por usuario | El rol y `esAdmin` se tomaban de la fila de un compañero |
+| Carrera al cambiar de conversación | El operador leía un hilo y le escribía la respuesta a otro cliente |
+| `formatDayDivider` sin validar | Una fecha inválida tumbaba el panel del hilo completo |
+| El borrador se borraba antes de confirmar | El operador perdía el texto redactado si el envío fallaba |
+| Se anunciaba "enviada" lo encolado | Un aviso verde afirmaba algo que aún podía fallar |
+| La tabla de comprobantes no seguía al periodo | Dos tablas contradictorias en la misma pantalla |

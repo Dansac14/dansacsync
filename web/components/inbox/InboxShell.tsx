@@ -13,10 +13,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import Link from "next/link";
 import {
-  contactLabel,
+  contactLabel, serviceWindowClosed,
   type Channel, type ConversationRow, type Group, type Membership, type MessageRow,
 } from "@/lib/types";
+import { ProductPicker, type ProductoEnviable } from "./ProductPicker";
 import { ConversationList } from "./ConversationList";
 import { MessageThread } from "./MessageThread";
 import { Composer } from "./Composer";
@@ -47,13 +49,14 @@ const FILTROS_INICIALES: Filters = {
 };
 
 export function InboxShell({
-  userId, userEmail, memberships, active, groups, onLogout,
+  userId, userEmail, memberships, active, groups, productos, onLogout,
 }: {
   userId: string;
   userEmail: string;
   memberships: Membership[];
   active: Membership;
   groups: Group[];
+  productos: ProductoEnviable[];
   onLogout: () => Promise<void>;
 }) {
   const supabase = createSupabaseBrowserClient();
@@ -66,13 +69,19 @@ export function InboxShell({
   const [cargandoLista, setCargandoLista] = useState(true);
   const [cargandoHilo, setCargandoHilo] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
 
   // El id seleccionado se guarda en una referencia para que el manejador de
   // tiempo real no se vuelva a crear con cada cambio de conversacion: si se
   // recreara, la suscripcion se cerraria y se abriria constantemente.
+  //
+  // La asignacion va en un efecto y no en el cuerpo del render: con un render
+  // descartado, la referencia se quedaba con el valor de un render que nunca se
+  // aplico, y el mensaje que llegara por tiempo real se anadia al hilo
+  // equivocado.
   const selectedRef = useRef<string | null>(null);
-  selectedRef.current = selectedId;
+  useEffect(() => { selectedRef.current = selectedId; }, [selectedId]);
 
   // ---------------------------------------------------------------------------
   // Carga de la lista
@@ -105,12 +114,34 @@ export function InboxShell({
     void cargarConversaciones();
   }, [cargarConversaciones]);
 
+  // Recarga agrupada de la lista.
+  //
+  // Cada mensaje que llega por tiempo real necesita refrescar la bandeja
+  // (contadores y vista previa los calculan triggers). Pero una rafaga de 30
+  // mensajes lanzaba 30 consultas de 200 filas con dos joins por cada navegador
+  // abierto, y como las respuestas pueden llegar desordenadas la lista podia
+  // retroceder a un estado anterior. Con esta ventana, una rafaga produce una
+  // sola consulta.
+  const recargaPendiente = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recargarAgrupado = useCallback(() => {
+    if (recargaPendiente.current) return;
+    recargaPendiente.current = setTimeout(() => {
+      recargaPendiente.current = null;
+      void cargarConversaciones();
+    }, 400);
+  }, [cargarConversaciones]);
+
+  useEffect(() => () => {
+    if (recargaPendiente.current) clearTimeout(recargaPendiente.current);
+  }, []);
+
   // ---------------------------------------------------------------------------
   // Carga de un hilo
   // ---------------------------------------------------------------------------
 
   const abrirConversacion = useCallback(async (conversationId: string) => {
     setSelectedId(conversationId);
+    selectedRef.current = conversationId;
     setCargandoHilo(true);
 
     const { data, error: consultaError } = await supabase
@@ -120,6 +151,13 @@ export function InboxShell({
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: true })
       .limit(300);
+
+    // Guardian de carrera. Con dos clics seguidos en la lista y una consulta
+    // lenta, la respuesta del PRIMER hilo llegaba despues de haber seleccionado
+    // el segundo: la cabecera y la caja de escritura apuntaban a un cliente y
+    // los mensajes en pantalla eran de otro. El operador leia una conversacion
+    // y le escribia la respuesta a otra persona.
+    if (selectedRef.current !== conversationId) return;
 
     if (consultaError) {
       setError(`No se pudo abrir la conversación: ${consultaError.message}`);
@@ -167,7 +205,7 @@ export function InboxShell({
           // La lista se refresca desde la base y no a mano: los contadores y la
           // vista previa los calculan triggers, y replicar esa logica en el
           // cliente es garantizar que un dia deje de coincidir.
-          void cargarConversaciones();
+          recargarAgrupado();
         },
       )
       .on(
@@ -181,12 +219,12 @@ export function InboxShell({
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "conversations", filter: `tenant_id=eq.${tenantId}` },
-        () => { void cargarConversaciones(); },
+        () => { recargarAgrupado(); },
       )
       .subscribe();
 
     return () => { void supabase.removeChannel(canal); };
-  }, [supabase, tenantId, cargarConversaciones]);
+  }, [supabase, tenantId, recargarAgrupado]);
 
   // ---------------------------------------------------------------------------
   // Acciones
@@ -197,8 +235,8 @@ export function InboxShell({
     [conversations, selectedId],
   );
 
-  const enviar = useCallback(async (texto: string) => {
-    if (!seleccionada) return;
+  const enviar = useCallback(async (texto: string): Promise<boolean> => {
+    if (!seleccionada) return false;
 
     setEnviando(true);
     const { error: envioError } = await supabase.rpc("send_operator_message", {
@@ -211,9 +249,10 @@ export function InboxShell({
 
     if (envioError) {
       setError(`No se pudo enviar: ${envioError.message}`);
-      return;
+      return false;
     }
     setError(null);
+    return true;
     // No se anade el mensaje a mano: llega por tiempo real con su id real y su
     // estado de entrega, que es justo lo que el operador necesita ver.
   }, [supabase, seleccionada]);
@@ -289,6 +328,18 @@ export function InboxShell({
         </div>
       )}
 
+      {aviso && (
+        <div className="flex items-start gap-3 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+          <span className="flex-1">{aviso}</span>
+          <button
+            onClick={() => setAviso(null)}
+            className="text-emerald-700 underline hover:no-underline"
+          >
+            cerrar
+          </button>
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-full max-w-sm shrink-0 flex-col border-r border-slate-200 bg-white md:w-80 lg:w-96">
           <ConversationList
@@ -307,7 +358,10 @@ export function InboxShell({
             <>
               <ThreadHeader
                 conversation={seleccionada}
+                productos={productos}
                 onModeChange={(modo) => void cambiarModo(modo)}
+                onAviso={setAviso}
+                onError={setError}
               />
               <MessageThread
                 conversationId={seleccionada.id}
@@ -318,7 +372,7 @@ export function InboxShell({
               <Composer
                 conversation={seleccionada}
                 enviando={enviando}
-                onSend={(texto) => void enviar(texto)}
+                onSend={enviar}
               />
             </>
           ) : (
@@ -359,6 +413,26 @@ function TopBar({
           </span>
         )}
       </div>
+
+      <nav className="ml-2 flex items-center gap-1">
+        {[
+          { href: "/ordenes", etiqueta: "Órdenes" },
+          { href: "/catalogo", etiqueta: "Catálogo" },
+          { href: "/finanzas", etiqueta: "Finanzas" },
+          { href: "/ajustes", etiqueta: "Ajustes" },
+        ].map((seccion) => (
+          <Link
+            key={seccion.href}
+            href={memberships.length > 1 && active.tenants?.slug
+              ? `${seccion.href}?empresa=${active.tenants.slug}`
+              : seccion.href}
+            className="rounded-lg px-2 py-1 text-xs font-medium text-slate-600
+                       transition hover:bg-slate-100"
+          >
+            {seccion.etiqueta}
+          </Link>
+        ))}
+      </nav>
 
       {/* Un operador puede atender varias empresas del SaaS. El cambio recarga
           la pagina a proposito: cambiar de empresa cambia el tenant de todas
@@ -401,10 +475,13 @@ function TopBar({
 }
 
 function ThreadHeader({
-  conversation, onModeChange,
+  conversation, productos, onModeChange, onAviso, onError,
 }: {
   conversation: ConversationRow;
+  productos: ProductoEnviable[];
   onModeChange: (modo: "bot" | "human") => void;
+  onAviso: (mensaje: string) => void;
+  onError: (mensaje: string) => void;
 }) {
   const enHumano = conversation.handling_mode === "human";
 
@@ -430,6 +507,14 @@ function ThreadHeader({
       >
         {enHumano ? "Atención humana" : "Agente de IA activo"}
       </span>
+
+      <ProductPicker
+        conversationId={conversation.id}
+        productos={productos}
+        deshabilitado={serviceWindowClosed(conversation)}
+        onEnviado={(nombre) => onAviso(`Ficha de "${nombre}" puesta en cola de envío.`)}
+        onError={onError}
+      />
 
       {/* Un solo boton que alterna. Dos botones separados obligan al operador a
           leer cual esta activo antes de pulsar. */}

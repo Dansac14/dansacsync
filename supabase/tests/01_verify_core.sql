@@ -15,6 +15,12 @@ insert into auth.users (id, email) values
   ('11111111-1111-1111-1111-111111111111', 'ana@empresa-uno.pe'),
   ('22222222-2222-2222-2222-222222222222', 'luis@empresa-dos.pe');
 
+-- A partir de aqui, el guion actua como el backend, no como el propietario de
+-- la base. Es como corre de verdad: el worker y las Edge Functions usan
+-- service_role. Los bloques que prueban la RLS cambian a `authenticated` o a
+-- `anon` por su cuenta y vuelven aqui al terminar.
+set role service_role;
+
 select public.provision_tenant(
   'Empresa Uno', 'empresa-uno', '11111111-1111-1111-1111-111111111111',
   '20481234567', 'Av. Larco 1234, Trujillo'
@@ -160,7 +166,7 @@ begin
   select count(*) into v_leak from public.contacts
    where tenant_id = (select id from public.tenants where slug = 'empresa-dos');
 
-  reset role;
+  set role service_role;
 
   if v_visible_tenants <> 1 then
     raise exception 'FALLO 5a: Ana ve % empresas, deberia ver 1', v_visible_tenants;
@@ -200,7 +206,7 @@ begin
     v_blocked := true;
   end;
 
-  reset role;
+  set role service_role;
 
   if not v_blocked then
     raise exception 'FALLO 6: un operador pudo insertar un mensaje firmado por el bot';
@@ -369,7 +375,7 @@ begin
   perform set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
   set local role authenticated;
   perform public.set_handling_mode(v_conv, 'human');
-  reset role;
+  set role service_role;
 
   select handling_mode into v_mode from public.conversations where id = v_conv;
   select count(*) into v_audits from public.audit_log
@@ -400,7 +406,7 @@ begin
   perform set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
   set local role authenticated;
   v_msg := public.send_operator_message(v_conv, 'Hola Rosa, te atiendo yo desde ahora.');
-  reset role;
+  set role service_role;
 
   select * into v_m   from public.messages where id = v_msg;
   select * into v_job from public.outbound_jobs where message_id = v_msg;

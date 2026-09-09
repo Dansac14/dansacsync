@@ -6,6 +6,9 @@
 
 \set ON_ERROR_STOP on
 
+-- Se actua como el backend, igual que en 01.
+set role service_role;
+
 -- -----------------------------------------------------------------------------
 -- PRUEBA 15 · El estado de entrega solo avanza
 -- -----------------------------------------------------------------------------

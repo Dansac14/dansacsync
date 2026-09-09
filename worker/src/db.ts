@@ -55,6 +55,8 @@ export interface OutboundJob {
   tenant_id: string;
   message_id: string;
   conversation_id: string;
+  attempts: number;
+  max_attempts: number;
 }
 
 export interface OutboundContext {
@@ -110,7 +112,16 @@ export async function completeOutboundJob(
     p_job_id: jobId,
     p_channel_message_id: channelMessageId,
   });
-  if (error) log.error("No se pudo cerrar el envio", { jobId, error: error.message });
+
+  // Si el cierre falla, el mensaje YA salio al cliente pero la fila queda en
+  // 'processing' y ninguna consulta la vuelve a recoger: el operador veria
+  // "enviando…" para siempre. Se registra como error grave; el recuperador
+  // periodico la devolvera a la cola y el reintento la cerrara.
+  if (error) {
+    log.error("El mensaje salio pero no se pudo cerrar su trabajo", {
+      jobId, channelMessageId, error: error.message,
+    });
+  }
 }
 
 export async function failOutboundJob(jobId: string, reason: string): Promise<void> {
@@ -190,6 +201,20 @@ export async function getAccessToken(account: ChannelAccount): Promise<string> {
     `La cuenta ${account.display_name} no tiene token propio en Vault y no hay ` +
     `META_SYSTEM_USER_TOKEN configurado`,
   );
+}
+
+/**
+ * Devuelve a la cola los trabajos que quedaron tomados por un worker que murio.
+ * El plazo lo decide la base (5 minutos por defecto), no el cliente.
+ */
+export async function requeueStaleJobs(): Promise<{ entrada: number; salida: number }> {
+  const { data, error } = await db.rpc("requeue_stale_jobs");
+  if (error) throw new Error(`requeue_stale_jobs: ${error.message}`);
+
+  const fila = (Array.isArray(data) ? data[0] : data) as
+    { entrada: number; salida: number } | null;
+
+  return { entrada: fila?.entrada ?? 0, salida: fila?.salida ?? 0 };
 }
 
 /** Se llama al desactivar una cuenta o rotar un token, para no servir datos viejos. */

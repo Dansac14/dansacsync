@@ -106,14 +106,33 @@ export async function processInboundEvent(event: InboundEvent): Promise<void> {
     if (!result) throw new Error("ingest_inbound_message no devolvio resultado");
 
     if (result.is_duplicate) {
-      // Reintento de Meta sobre un mensaje ya procesado. Se cierra sin hacer
-      // nada mas: volver a llamar a la IA le mandaria al cliente una segunda
-      // respuesta a la misma pregunta.
-      log.info("Evento duplicado descartado", {
-        eventId: event.id, messageId: result.message_id,
+      // El mensaje ya estaba guardado. Eso NO significa que ya se atendiera.
+      //
+      // La ingesta es lo primero que ocurre, a proposito: si el proceso muere
+      // despues, el mensaje del cliente ya esta en la bandeja. Pero si lo que
+      // fallo fue un paso posterior —la IA, el escalado, el encolado— el
+      // reintento llegaba aqui, veia "duplicado", cerraba el evento y el
+      // cliente se quedaba sin respuesta para siempre. El registro decia
+      // "duplicado descartado", que enmascaraba la perdida como si fuera un
+      // reintento normal de Meta.
+      //
+      // Asi que se comprueba lo que de verdad importa: si ya salio algo hacia
+      // el cliente despues de su mensaje. Si no salio nada, se atiende.
+      const yaRespondido = await existeRespuestaPosterior(
+        result.conversation_id, result.message_id,
+      );
+
+      if (yaRespondido) {
+        log.info("Evento duplicado ya atendido", {
+          eventId: event.id, messageId: result.message_id,
+        });
+        await completeInboundEvent(event.id);
+        return;
+      }
+
+      log.warn("Evento duplicado sin respuesta: se reanuda la atencion", {
+        eventId: event.id, messageId: result.message_id, intento: event.attempts,
       });
-      await completeInboundEvent(event.id);
-      return;
     }
 
     log.info("Mensaje entrante registrado", {
@@ -129,7 +148,7 @@ export async function processInboundEvent(event: InboundEvent): Promise<void> {
     // -----------------------------------------------------------------------
     // 2. Archivo adjunto
     // -----------------------------------------------------------------------
-    if (payload.media_external_id || payload.media_url) {
+    if (!result.is_duplicate && (payload.media_external_id || payload.media_url)) {
       try {
         const stored = await storeIncomingMedia({
           account,
@@ -272,6 +291,46 @@ async function applyStatus(
   });
 
   if (error) throw new Error(`apply_delivery_status: ${error.message}`);
+}
+
+/**
+ * ¿Salio algo hacia el cliente despues de su mensaje?
+ *
+ * Es la pregunta que distingue un reintento de Meta sobre algo ya atendido de
+ * un reintento sobre algo que quedo a medias. Ante la duda se responde `false`
+ * —es decir, se vuelve a atender—: una respuesta repetida es un problema
+ * menor que un cliente al que nadie contesto.
+ */
+async function existeRespuestaPosterior(
+  conversationId: string,
+  inboundMessageId: string,
+): Promise<boolean> {
+  const { data: entrante, error: errorEntrante } = await db
+    .from("messages")
+    .select("created_at")
+    .eq("id", inboundMessageId)
+    .single();
+
+  if (errorEntrante || !entrante) {
+    log.error("No se pudo leer el mensaje entrante para comprobar la respuesta", {
+      inboundMessageId, error: errorEntrante?.message,
+    });
+    return false;
+  }
+
+  const { count, error } = await db
+    .from("messages")
+    .select("id", { count: "exact", head: true })
+    .eq("conversation_id", conversationId)
+    .eq("direction", "outbound")
+    .gte("created_at", (entrante as { created_at: string }).created_at);
+
+  if (error) {
+    log.error("No se pudo comprobar si ya hubo respuesta", { conversationId, error: error.message });
+    return false;
+  }
+
+  return (count ?? 0) > 0;
 }
 
 async function killEvent(eventId: string, reason: string): Promise<void> {

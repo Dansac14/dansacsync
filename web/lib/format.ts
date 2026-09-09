@@ -50,8 +50,16 @@ export function formatRemaining(iso: string | null): string {
   return `${minutos} min`;
 }
 
-export function formatDayDivider(iso: string): string {
+export function formatDayDivider(iso: string | null): string {
+  // Se valida como las otras dos. Sin esto, un created_at nulo o mal formado
+  // lanzaba RangeError DENTRO del render del hilo y tumbaba el panel completo,
+  // no solo esa burbuja; y con null mostraba un separador de "1 de enero" en
+  // medio de la conversacion.
+  if (!iso) return "";
+
   const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+
   const ahora = new Date();
 
   if (date.toDateString() === ahora.toDateString()) return "Hoy";

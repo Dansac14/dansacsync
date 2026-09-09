@@ -9,7 +9,10 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/auth"];
+// Rutas que no exigen sesion. "/p/" es la pagina de la orden que abre el
+// cliente desde WhatsApp: su autorizacion es el token del enlace, no un login.
+// Lleva barra final a proposito, para no abrir tambien "/perfil" o "/panel".
+const PUBLIC_PATHS = ["/login", "/auth", "/p/"];
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });

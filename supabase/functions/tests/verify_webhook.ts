@@ -246,6 +246,66 @@ check("Campo distinto de messages se ignora",
   }).length === 0);
 
 // -----------------------------------------------------------------------------
+// Instagram y Messenger dentro de changes[].value.messaging
+// -----------------------------------------------------------------------------
+// Segun como se conecte la cuenta, Meta entrega los eventos en
+// entry[].messaging[] o envueltos en entry[].changes[].value.messaging[]. La
+// segunda forma se descartaba en silencio: el webhook respondia 200 con "sin
+// eventos aplicables", Meta no reintentaba y el mensaje del cliente desaparecia
+// sin dejar fila en ninguna tabla.
+// -----------------------------------------------------------------------------
+
+for (const objeto of ["page", "instagram"] as const) {
+  const anidado = normalizeMetaPayload({
+    object: objeto,
+    entry: [{
+      id: "ACC-1",
+      changes: [{
+        field: "messages",
+        value: {
+          messaging: [{
+            sender: { id: "USER-1" }, recipient: { id: "ACC-1" },
+            timestamp: 1757000000000,
+            message: { mid: "anidado.1", text: "Hola desde changes" },
+          }],
+        },
+      }],
+    }],
+  });
+
+  check(`${objeto}: los eventos dentro de changes[].value.messaging se recuperan`,
+    anidado.length === 1, `se obtuvieron ${anidado.length}`);
+  check(`${objeto}: el canal se identifica bien en la forma anidada`,
+    (anidado[0] as any)?.channel === (objeto === "instagram" ? "instagram" : "facebook"));
+  check(`${objeto}: la cuenta se resuelve en la forma anidada`,
+    (anidado[0] as any)?.external_account_id === "ACC-1");
+}
+
+// Las dos formas en el mismo POST no deben duplicar ni perder.
+const mixto = normalizeMetaPayload({
+  object: "page",
+  entry: [{
+    id: "ACC-1",
+    messaging: [{
+      sender: { id: "U1" }, recipient: { id: "ACC-1" }, timestamp: 1757000001000,
+      message: { mid: "directo.1", text: "directo" },
+    }],
+    changes: [{
+      field: "messages",
+      value: {
+        messaging: [{
+          sender: { id: "U2" }, recipient: { id: "ACC-1" }, timestamp: 1757000002000,
+          message: { mid: "anidado.2", text: "anidado" },
+        }],
+      },
+    }],
+  }],
+});
+check("Las dos formas en el mismo evento se recuperan sin duplicar",
+  mixto.length === 2 && new Set(mixto.map(dedupeKey)).size === 2,
+  `${mixto.length} eventos`);
+
+// -----------------------------------------------------------------------------
 // Claves de deduplicacion
 // -----------------------------------------------------------------------------
 

@@ -20,6 +20,19 @@ export interface SendParams {
 export interface SendResult {
   /** Id que devuelve el canal, para poder cruzar despues los acuses de entrega. */
   channelMessageId: string | null;
+
+  /**
+   * Texto que queda por enviar como mensaje aparte.
+   *
+   * Messenger e Instagram no admiten pie de foto: el adjunto y el texto son dos
+   * peticiones. Hacer las dos dentro del mismo trabajo era un defecto real: si
+   * la primera salia y la segunda devolvia 429, el trabajo se reintentaba
+   * COMPLETO y el cliente recibia la imagen otra vez, hasta cinco veces.
+   *
+   * Ahora cada trabajo hace exactamente una peticion, y el texto pendiente se
+   * encola como su propio mensaje. Un fallo del texto reintenta solo el texto.
+   */
+  pendingText?: string | null;
 }
 
 export interface MediaRef {

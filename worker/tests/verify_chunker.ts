@@ -133,6 +133,39 @@ check("Un parrafo enorme sin puntuacion se corta sin colgarse", duros.length > 1
 check("Ningun fragmento resultante queda vacio",
   duros.every((c) => c.content.trim().length > 0));
 
+// -----------------------------------------------------------------------------
+// Nada de texto se descarta
+// -----------------------------------------------------------------------------
+// El troceador hacia un .slice() al arrastrar el solape y tiraba lo que
+// excediera, sin volver a procesarlo. Con un parrafo corto seguido de uno largo
+// —una politica escrita de corrido— se perdia casi la mitad del manual, y la
+// ingesta lo reportaba como exito.
+// -----------------------------------------------------------------------------
+
+const reglas = Array.from({ length: 80 }, (_, i) =>
+  `Regla ${i + 1}: el taller numero ${i + 1} cuesta ${100 + i} soles.`).join(" ");
+const conParrafoLargo = `CONDICIONES DEL PROGRAMA:\nBreve introduccion.\n\n${reglas}`;
+
+const trozosLargos = buildChunks(conParrafoLargo);
+const textoRecuperado = trozosLargos.map((c) => c.content).join(" ");
+const perdidas: number[] = [];
+for (let i = 1; i <= 80; i++) {
+  if (!textoRecuperado.includes(`Regla ${i}:`)) perdidas.push(i);
+}
+
+check("Ninguna regla del manual se pierde al trocear", perdidas.length === 0,
+  `perdidas: ${perdidas.length} (${perdidas.slice(0, 5).join(", ")}…)`);
+check("La introduccion tambien se conserva",
+  textoRecuperado.includes("Breve introduccion"));
+
+// Un texto de un solo bloque enorme sin ninguna puntuacion.
+const sinPuntuacion = "BLOQUE:\n" + "palabra".repeat(3000);
+const trozosDuros = buildChunks(sinPuntuacion);
+const recuperadoDuro = trozosDuros.map((c) => c.content).join("");
+check("Un bloque sin puntuacion se trocea sin perder longitud",
+  recuperadoDuro.length >= 3000 * 7 * 0.9,
+  `${recuperadoDuro.length} de ${3000 * 7}`);
+
 // =============================================================================
 
 process.stdout.write("\n" + "=".repeat(70) + "\n");

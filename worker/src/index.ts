@@ -12,7 +12,7 @@
 
 import { config } from "./config.ts";
 import {
-  claimInboundEvents, claimOutboundJobs, invalidateAccountCache,
+  claimInboundEvents, claimOutboundJobs, invalidateAccountCache, requeueStaleJobs,
   type InboundEvent, type OutboundJob,
 } from "./db.ts";
 import { processInboundEvent } from "./handlers/inbound.ts";
@@ -128,6 +128,28 @@ async function main(): Promise<void> {
   // un canal o rotar un token surta efecto sin reiniciar el proceso.
   const refresher = setInterval(() => invalidateAccountCache(), 60_000);
   refresher.unref();
+
+  // Recuperador de trabajos abandonados.
+  //
+  // Si un worker muere de golpe —OOM, SIGKILL, un despliegue que no espera— los
+  // trabajos que ya habia tomado quedan en 'processing', y las consultas de la
+  // cola solo recogen 'queued' y 'failed'. Sin esto, esos mensajes de clientes
+  // no se responden nunca y nadie se entera. Se comprueba al arrancar (que es
+  // justo cuando acaba de morir el anterior) y despues cada dos minutos.
+  const recuperar = async () => {
+    try {
+      const { entrada, salida } = await requeueStaleJobs();
+      if (entrada > 0 || salida > 0) {
+        log.warn("Trabajos abandonados devueltos a la cola", { entrada, salida });
+      }
+    } catch (error) {
+      log.error("El recuperador de trabajos fallo", { error: describeError(error) });
+    }
+  };
+
+  await recuperar();
+  const recuperador = setInterval(() => { void recuperar(); }, 120_000);
+  recuperador.unref();
 
   await Promise.all([
     pollLoop<InboundEvent>({

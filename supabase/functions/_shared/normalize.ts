@@ -291,24 +291,22 @@ export function normalizeMetaPayload(payload: any): NormalizedEvent[] {
       continue;
     }
 
-    if (object === "instagram") {
-      events.push(...normalizeMessagingEntry(entry, "instagram"));
-      continue;
+    const channel: Channel = object === "instagram" ? "instagram" : "facebook";
+
+    // Messenger e Instagram entregan los eventos de dos formas distintas segun
+    // como se conecto la cuenta: directamente en entry[].messaging[], o
+    // envueltos en entry[].changes[].value.messaging[]. Hay que recorrer las
+    // dos: antes solo se leia la primera, y con una cuenta conectada de la
+    // segunda forma el webhook respondia 200 con "sin eventos aplicables", Meta
+    // no reintentaba y el mensaje del cliente desaparecia sin dejar rastro.
+    if (Array.isArray(entry?.messaging) && entry.messaging.length > 0) {
+      events.push(...normalizeMessagingEntry(entry, channel));
     }
 
-    if (object === "page") {
-      events.push(...normalizeMessagingEntry(entry, "facebook"));
-      continue;
-    }
-
-    // Instagram con Facebook Login puede llegar con object "page" y los
-    // eventos dentro de changes[].value en lugar de messaging[].
     for (const change of entry?.changes ?? []) {
-      if (change?.field === "messages" && change?.value?.messaging) {
-        events.push(...normalizeMessagingEntry(
-          { id: entry.id, messaging: change.value.messaging },
-          object === "instagram" ? "instagram" : "facebook",
-        ));
+      const anidado = change?.value?.messaging;
+      if (Array.isArray(anidado) && anidado.length > 0) {
+        events.push(...normalizeMessagingEntry({ id: entry.id, messaging: anidado }, channel));
       }
     }
   }

@@ -42,52 +42,42 @@ function buildDriver(channel: Channel): ChannelDriver {
         `${account.api_base_url}/${account.api_version}/${account.external_account_id}/messages`;
 
       const kind = ATTACHMENT_KIND[mediaType];
-      const messages: Record<string, unknown>[] = [];
+      const conAdjunto = Boolean(kind && mediaUrl);
 
-      if (kind && mediaUrl) {
-        messages.push({
-          attachment: {
-            type: kind,
-            payload: { url: mediaUrl, is_reusable: true },
-          },
+      // Una sola peticion por trabajo. Si hay adjunto y texto, se envia el
+      // adjunto y el texto se devuelve para encolarlo como mensaje aparte.
+      const message: Record<string, unknown> = conAdjunto
+        ? { attachment: { type: kind, payload: { url: mediaUrl, is_reusable: true } } }
+        : { text: content };
+
+      if (!conAdjunto && (!content || content.trim() === "")) {
+        throw new ChannelError("No hay nada que enviar: sin texto y sin archivo", {
+          permanent: true,
         });
-        // A diferencia de WhatsApp, aqui el adjunto no admite pie de foto: el
-        // texto tiene que ir como un segundo mensaje.
-        if (content && content.trim() !== "") messages.push({ text: content });
-      } else {
-        if (!content || content.trim() === "") {
-          throw new ChannelError("No hay nada que enviar: sin texto y sin archivo", {
-            permanent: true,
-          });
-        }
-        messages.push({ text: content });
       }
 
-      let lastId: string | null = null;
+      const response = await fetchWithTimeout(endpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          recipient: { id: recipientId },
+          // RESPONSE declara que se contesta a un mensaje del usuario, que es
+          // siempre el caso aqui: el bot y el operador responden, no inician.
+          messaging_type: "RESPONSE",
+          message,
+        }),
+      });
 
-      for (const message of messages) {
-        const response = await fetchWithTimeout(endpoint, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${token}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({
-            recipient: { id: recipientId },
-            // RESPONSE declara que se contesta a un mensaje del usuario, que es
-            // siempre el caso aqui: el bot y el operador responden, no inician.
-            messaging_type: "RESPONSE",
-            message,
-          }),
-        });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw classifyMetaError(response.status, payload);
 
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) throw classifyMetaError(response.status, payload);
-
-        lastId = (payload as any)?.message_id ?? lastId;
-      }
-
-      return { channelMessageId: lastId };
+      return {
+        channelMessageId: (payload as any)?.message_id ?? null,
+        pendingText: conAdjunto && content && content.trim() !== "" ? content : null,
+      };
     },
 
     async downloadMedia({ mediaUrl }: MediaRef): Promise<MediaDownload> {

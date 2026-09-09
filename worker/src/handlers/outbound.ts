@@ -111,6 +111,29 @@ export async function processOutboundJob(job: OutboundJob): Promise<void> {
       channel: ctx.channel,
       channelMessageId: result.channelMessageId,
     });
+
+    // Messenger e Instagram no admiten pie de foto: el texto que acompana a un
+    // adjunto va como mensaje aparte. Se encola DESPUES de cerrar este trabajo,
+    // asi que un fallo del texto no reintenta el adjunto ni lo duplica.
+    if (result.pendingText) {
+      const { error: eTexto } = await db.rpc("enqueue_outbound_message", {
+        p_conversation_id: ctx.conversation_id,
+        p_content: result.pendingText,
+        p_sender_type: "bot",
+        p_sender_user_id: null,
+        p_media_type: "text",
+        p_media_url: null,
+        p_payload: { origen: "pie_de_adjunto", mensaje_adjunto: ctx.message_id },
+      });
+
+      if (eTexto) {
+        // El adjunto si salio. Se registra para que el hueco sea visible y no
+        // se confunda con un envio completo.
+        log.error("El adjunto salio pero su texto no se pudo encolar", {
+          jobId: job.id, conversationId: ctx.conversation_id, error: eTexto.message,
+        });
+      }
+    }
   } catch (error) {
     const detail = describeError(error);
 
@@ -123,8 +146,11 @@ export async function processOutboundJob(job: OutboundJob): Promise<void> {
     }
 
     await failOutboundJob(job.id, detail);
+    // `intento` recibia el UUID del trabajo por un error de copia, asi que en
+    // los registros no se distinguia un primer intento de un quinto: justo el
+    // dato con el que se diagnostica una cuenta con el token caducado.
     log.warn("Envio fallido, se reintentara", {
-      jobId: job.id, intento: job.id, error: detail,
+      jobId: job.id, intento: job.attempts, error: detail,
     });
   }
 }

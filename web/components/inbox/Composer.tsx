@@ -23,7 +23,7 @@ export function Composer({
 }: {
   conversation: ConversationRow;
   enviando: boolean;
-  onSend: (texto: string) => void;
+  onSend: (texto: string) => Promise<boolean>;
 }) {
   const [texto, setTexto] = useState("");
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -47,11 +47,15 @@ export function Composer({
     area.style.height = `${Math.min(area.scrollHeight, 160)}px`;
   }, [texto]);
 
-  function enviar() {
+  async function enviar() {
     const limpio = texto.trim();
     if (!limpio || ventanaCerrada || enviando) return;
-    onSend(limpio);
-    setTexto("");
+
+    // El borrador se limpia solo si el envio se acepto. Antes se borraba de
+    // inmediato: si la llamada fallaba, el operador perdia el texto que acababa
+    // de redactar y tenia que reescribirlo de memoria.
+    const aceptado = await onSend(limpio);
+    if (aceptado) setTexto("");
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -59,7 +63,7 @@ export function Composer({
     // que venga de WhatsApp.
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      enviar();
+      void enviar();
     }
   }
 
@@ -109,7 +113,7 @@ export function Composer({
         />
 
         <button
-          onClick={enviar}
+          onClick={() => void enviar()}
           disabled={!puedeEnviar}
           className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition
                      hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300"
