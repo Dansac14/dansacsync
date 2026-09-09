@@ -16,12 +16,12 @@ credenciales con ningún otro sistema.
 | 1 | Esquema de datos, RLS y funciones de dominio | **Completa y verificada** |
 | 2 | Webhook unificado, worker y despacho multicanal | **Completa y verificada** · TikTok sin implementar |
 | 3 | Motor RAG e ingesta de manuales | **Completa** · sin probar aún contra un proveedor real |
-| 4 | Inbox del operador con takeover en tiempo real | Pendiente |
+| 4 | Inbox del operador con takeover en tiempo real | **Completa** · compila y se sirve; sin probar aún contra datos reales |
 | 5 | Catálogo, órdenes y módulo fiscal (interfaz) | Pendiente |
 
-Lo que falta para que el sistema atienda a un cliente real: credenciales de
-Meta, una clave de OpenAI y los manuales de la empresa indexados. El código
-está completo para esos tres canales.
+Lo que falta para que el sistema atienda a un cliente real: un proyecto
+Supabase, credenciales de Meta, una clave de OpenAI y los manuales de la
+empresa indexados. El código está completo para esos tres canales.
 
 ---
 
@@ -137,7 +137,22 @@ worker/
   src/ai/ingest.ts                     CLI de indexación de manuales
   tests/verify_chunker.ts              22 verificaciones de troceado
 
-web/                                   Pendiente · Fase 4
+web/
+  app/layout.tsx                       Raíz de la aplicación
+  app/login/page.tsx                   Ingreso, sin registro público
+  app/login/actions.ts                 Server actions de sesión
+  app/inbox/page.tsx                   Carga inicial: usuario, empresas, grupos
+  components/inbox/InboxShell.tsx      Estado, tiempo real y disposición
+  components/inbox/ConversationList.tsx Columna de conversaciones con filtros
+  components/inbox/MessageThread.tsx   Hilo con separadores de día y acuses
+  components/inbox/Composer.tsx        Caja de escritura con avisos de ventana
+  components/inbox/ContactPanel.tsx    Ficha del contacto y grupos
+  components/inbox/ChannelBadge.tsx    Distintivo de canal y estado de entrega
+  lib/supabase/{client,server,middleware}.ts  Clientes y renovación de sesión
+  lib/types.ts                         Tipos del esquema y nombre del contacto
+  lib/format.ts                        Fechas relativas y ventana de servicio
+  middleware.ts                        Guardia de rutas
+  tests/verify_inbox_logic.ts          24 verificaciones de lógica de interfaz
 ```
 
 ---
@@ -161,12 +176,18 @@ node --experimental-strip-types supabase/functions/tests/verify_webhook.ts
 # Troceado de manuales
 node --experimental-strip-types worker/tests/verify_chunker.ts
 
-# Tipos del worker
+# Lógica del Inbox
+node --experimental-strip-types web/tests/verify_inbox_logic.ts
+
+# Tipos y build
 cd worker && npm install && npm run typecheck
+cd ../web && npm install && npm run build
 ```
 
 Resultado actual: **19 invariantes de base de datos, 38 verificaciones de
-webhook y 22 de troceado. 79 en total, todas en verde.**
+webhook, 22 de troceado y 24 de la lógica del Inbox. 103 en total, todas en
+verde.** El frontend compila y se sirve: `/login` responde 200 y `/inbox` sin
+sesión redirige a `/login?destino=/inbox`.
 
 Base de datos:
 
@@ -216,6 +237,30 @@ porque `auth`, `auth.uid()` y los roles ya existen.
 
 ---
 
+## El Inbox
+
+Tres columnas: conversaciones, hilo y ficha del contacto.
+
+- **Tiempo real.** Un mensaje nuevo aparece sin recargar. Sin esto, dos
+  operadores atenderían el mismo chat sin saberlo. Realtime respeta la RLS, así
+  que la suscripción solo entrega filas de la empresa del operador.
+- **Los tres emisores se distinguen.** Cliente, agente de IA y operador tienen
+  aspecto distinto: el operador necesita saber qué contestó el bot antes de
+  escribir, para no repetirlo ni contradecirlo.
+- **Aviso de ventana de 24 h.** Si está cerrada, la caja de escritura se bloquea
+  y se explica por qué, en lugar de dejar redactar un mensaje que Meta va a
+  rechazar. La etiqueta aparece también en la lista, antes de abrir el hilo.
+- **Aviso de modo IA.** Si el operador escribe sin tomar el control, el agente
+  sigue activo y puede responder encima. Se advierte.
+- **Estado de entrega en cada mensaje saliente.** Que un operador vea "no se
+  envió" en lugar de nada es la diferencia entre reintentar y creer que el
+  cliente ya recibió la respuesta.
+- **Los grupos del sistema no se editan a mano.** "Atención humana" se asigna al
+  escalar y "Leads nuevos" al primer mensaje: dejarlos editables crearía un
+  estado que el motor volvería a cambiar.
+
+---
+
 ## Puesta en marcha
 
 `docs/DESPLIEGUE.md` tiene los pasos completos. En resumen:
@@ -235,7 +280,15 @@ cd worker && npm install && npm start
 # 4. Indexar los manuales de una empresa
 npm run ingest -- --tenant mi-empresa --title "Manual Operativo 2026" \
                   --file ./manuales/operativo.md
+
+# 5. Inbox
+cd ../web && npm install && npm run build && npm start
 ```
+
+En Vercel, el directorio raíz del proyecto es `web/` y las variables necesarias
+son `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. La
+`SUPABASE_SERVICE_ROLE_KEY` no va en Vercel: el Inbox trabaja con la sesión del
+operador y toda consulta pasa por la RLS.
 
 El webhook se despliega con `--no-verify-jwt` porque Meta lo llama sin un token
 de Supabase: su autenticación es la firma HMAC del propio evento, que la función

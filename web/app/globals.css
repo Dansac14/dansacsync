@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Paleta
+   ---------------------------------------------------------------------------
+   Los colores de canal no son decorativos: el operador tiene que distinguir de
+   un vistazo si un mensaje llego por WhatsApp o por Instagram, porque las
+   reglas de respuesta son distintas en cada uno.
+   --------------------------------------------------------------------------- */
+
+@theme {
+  --color-canal-whatsapp: #25D366;
+  --color-canal-instagram: #E1306C;
+  --color-canal-facebook: #1877F2;
+  --color-canal-tiktok: #010101;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-100 text-slate-900 antialiased;
+}
+
+/* La bandeja ocupa la ventana completa y cada columna hace su propio scroll:
+   la pagina nunca se desplaza en conjunto. */
+.inbox-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}

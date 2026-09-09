@@ -49,9 +49,9 @@ begin
   -- renombrar o traducir; la clave no cambia.
   insert into public.groups (tenant_id, name, system_key, description, color, is_system)
   values
-    (v_tenant.id, 'Leads nuevos',   'new_leads',     'Contactos recien llegados sin calificar', '#3B82F6', true),
-    (v_tenant.id, 'Atencion humana','human_support', 'Conversaciones tomadas por un operador',  '#F59E0B', true),
-    (v_tenant.id, 'Lead calificado','qualified',     'Interesados con intencion de compra',     '#10B981', true),
+    (v_tenant.id, 'Leads nuevos',   'new_leads',     'Contactos recién llegados sin calificar', '#3B82F6', true),
+    (v_tenant.id, 'Atención humana','human_support', 'Conversaciones tomadas por un operador',  '#F59E0B', true),
+    (v_tenant.id, 'Lead calificado','qualified',     'Interesados con intención de compra',     '#10B981', true),
     (v_tenant.id, 'Cliente',        'customer',      'Ya realizaron al menos una compra',       '#8B5CF6', true);
 
   -- Series de numeracion iniciales.

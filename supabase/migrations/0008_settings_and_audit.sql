@@ -55,7 +55,7 @@ create table public.company_settings (
   -- base y no en el codigo porque es mensaje de marca: cada empresa lo escribe
   -- a su manera y en su idioma, y lo cambia sin esperar un despliegue.
   escalation_message       text not null default
-    'Con gusto te paso con una persona del equipo para que continue contigo por aqui.',
+    'Con gusto te paso con una persona del equipo para que continúe contigo por aquí.',
   no_context_message       text not null default
     'Para darte el dato exacto voy a pasarte con una persona del equipo.',
   ai_unavailable_message   text not null default
