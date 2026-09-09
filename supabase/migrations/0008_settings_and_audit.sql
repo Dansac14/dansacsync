@@ -50,6 +50,17 @@ create table public.company_settings (
                              'reclamo','queja','descuento','cuotas','financiamiento'
                            ],
   escalation_on_no_context boolean not null default true,
+
+  -- Texto que ve el cliente cuando la conversacion pasa a un humano. Esta en la
+  -- base y no en el codigo porque es mensaje de marca: cada empresa lo escribe
+  -- a su manera y en su idioma, y lo cambia sin esperar un despliegue.
+  escalation_message       text not null default
+    'Con gusto te paso con una persona del equipo para que continue contigo por aqui.',
+  no_context_message       text not null default
+    'Para darte el dato exacto voy a pasarte con una persona del equipo.',
+  ai_unavailable_message   text not null default
+    'En un momento te responde una persona del equipo.',
+
   business_hours           jsonb not null default '{}'::jsonb,
   out_of_hours_message     text,
 

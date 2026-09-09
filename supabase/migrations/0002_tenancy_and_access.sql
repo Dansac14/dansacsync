@@ -140,7 +140,14 @@ create table public.channel_accounts (
   business_account_id      varchar(255),
   phone_number             varchar(30),
   page_id                  varchar(255),
-  api_version              varchar(10) not null default 'v21.0',
+
+  -- Host y version de la API. Instagram tiene dos rutas de integracion y no son
+  -- intercambiables: con Instagram Login se llama a graph.instagram.com con un
+  -- token de usuario de Instagram, y con Facebook Login a graph.facebook.com
+  -- con un token de pagina. Se guarda por cuenta porque en un SaaS convivan
+  -- clientes conectados de las dos formas.
+  api_base_url             varchar(120) not null default 'https://graph.facebook.com',
+  api_version              varchar(10)  not null default 'v25.0',
 
   -- Referencias a Supabase Vault (nunca el valor en claro)
   access_token_secret_name  text,
