@@ -1,0 +1,42 @@
+# Secretos y entornos locales
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dependencias
+node_modules/
+.pnpm-store/
+.yarn/
+
+# Compilados y cache
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+.turbo/
+.vercel/
+
+# Supabase CLI
+supabase/.branches/
+supabase/.temp/
+supabase/.env
+
+# Volcados y respaldos de base de datos
+*.dump
+*.sql.gz
+db_dump/
+
+# Registros
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Sistema operativo y editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

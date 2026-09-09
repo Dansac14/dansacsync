@@ -1,0 +1,48 @@
+# =============================================================================
+# Configuración del proyecto para el CLI de Supabase
+# =============================================================================
+# project_id se rellena al ejecutar `supabase link --project-ref <ref>`.
+# =============================================================================
+
+project_id = ""
+
+[api]
+enabled = true
+port = 54321
+# Solo `public` queda expuesto por la API. El esquema `app` guarda las funciones
+# de autorización y no debe ser accesible desde el cliente.
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 200
+
+[db]
+port = 54322
+major_version = 17
+
+[db.pooler]
+enabled = false
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+enable_signup = false          # El alta de empresas pasa por provision_tenant
+
+[auth.email]
+enable_signup = false
+enable_confirmations = true
+
+[realtime]
+enabled = true
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+# El webhook es público por definición: Meta y TikTok lo llaman sin un JWT de
+# Supabase. Su autenticación es la firma HMAC del propio evento, que la función
+# verifica antes de tocar la base de datos.
+[functions.webhook-social]
+verify_jwt = false
