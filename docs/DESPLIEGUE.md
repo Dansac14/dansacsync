@@ -82,7 +82,7 @@ supabase link --project-ref <tu-project-ref>
 supabase db push
 ```
 
-`db push` aplica los 16 archivos de `supabase/migrations/` en orden alfabético,
+`db push` aplica los 17 archivos de `supabase/migrations/` en orden alfabético,
 que es el orden correcto: cada uno depende de los anteriores.
 
 Sin el CLI, con `psql` directo:

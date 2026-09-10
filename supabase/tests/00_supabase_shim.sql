@@ -42,3 +42,21 @@ $$;
 
 grant usage on schema auth to anon, authenticated, service_role;
 grant select on auth.users to authenticated, service_role;
+
+-- -----------------------------------------------------------------------------
+-- Privilegios por defecto del esquema public
+-- -----------------------------------------------------------------------------
+-- Un proyecto de Supabase no llega con los valores de fabrica de PostgreSQL:
+-- trae configurado que todo objeto nuevo del esquema public nazca concedido a
+-- anon, authenticated y service_role de forma NOMINAL.
+--
+-- Sin esta parte, las pruebas corren sobre un servidor mas restrictivo que el
+-- real y dan por bueno un esquema que en produccion deja funciones abiertas a
+-- `anon`. Paso exactamente eso: 0016 revocaba de PUBLIC, que es una entrada
+-- distinta de la ACL, y en el proyecto real `anon` seguia pudiendo ejecutar
+-- send_operator_message. La migracion 0017 lo cierra y la prueba 38 lo vigila.
+-- -----------------------------------------------------------------------------
+
+alter default privileges in schema public grant all on functions  to anon, authenticated, service_role;
+alter default privileges in schema public grant all on tables     to anon, authenticated, service_role;
+alter default privileges in schema public grant all on sequences  to anon, authenticated, service_role;
